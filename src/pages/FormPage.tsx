@@ -1,12 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import type { FieldName, FormValues } from '../types';
-import {
-  FIELD_LABELS,
-  OPTIONS,
-  getCourseGroup,
-  totalCredits,
-  validateForm,
-} from '../lib/formLogic';
+import { FIELD_LABELS, OPTIONS, validateForm } from '../lib/formLogic';
 
 const DEFAULTS: Partial<FormValues> = {
   major: 'NNA',
@@ -19,21 +13,22 @@ const DEFAULTS: Partial<FormValues> = {
 
 const FIELDS = Object.keys(FIELD_LABELS) as FieldName[];
 
-export default function FormPage() {
+interface Props {
+  onContinue: (values: FormValues) => void;
+}
+
+export default function FormPage({ onContinue }: Props) {
   const [values, setValues] = useState<Partial<FormValues>>(DEFAULTS);
-  const [submitted, setSubmitted] = useState(false);
 
   const { errors, blockers, canProceed } = validateForm(values);
-  const courses = values.level ? getCourseGroup(values.level) : null;
 
   function handleChange(name: FieldName, value: string) {
     setValues((prev) => ({ ...prev, [name]: value }));
-    setSubmitted(false);
   }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (canProceed) setSubmitted(true);
+    if (canProceed) onContinue(values as FormValues);
   }
 
   return (
@@ -74,40 +69,6 @@ export default function FormPage() {
           Tiếp tục
         </button>
       </form>
-
-      {submitted && courses && values.level && (
-        <section className="card result">
-          <h2>Thông tin đã nhập</h2>
-          <dl>
-            {FIELDS.map((name) => (
-              <div key={name} className="row">
-                <dt>{FIELD_LABELS[name]}</dt>
-                <dd>{OPTIONS[name].find((o) => o.value === values[name])?.label}</dd>
-              </div>
-            ))}
-          </dl>
-
-          <h3>Học phần bắt buộc khối IV.1 (bậc {values.level})</h3>
-          <table>
-            <thead>
-              <tr><th>Mã HP</th><th>Tên học phần</th><th>TC</th></tr>
-            </thead>
-            <tbody>
-              {courses.map((c) => (
-                <tr key={c.code}>
-                  <td>{c.code}</td>
-                  <td>{c.name}</td>
-                  <td>{c.credits}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr><td colSpan={2}>Tổng</td><td>{totalCredits(courses)}</td></tr>
-            </tfoot>
-          </table>
-          <p className="note">Kết quả chỉ mang tính tham khảo, cần đối chiếu cổng đăng ký chính thức.</p>
-        </section>
-      )}
     </main>
   );
 }
