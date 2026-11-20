@@ -53,13 +53,30 @@ export default function AnalysisPage({ values, result, onBack }: Props) {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    askDify({ mode: 'analysis', situation: result.situationLabel, calc })
-      .then((r) => {
+    // Câu hỏi nhập ở màn hình trước được gửi ngay sau phần phân tích, để AI trả lời
+    const pending = result.question?.trim() ?? '';
+    (async () => {
+      let convId: string | null = null;
+      try {
+        const r = await askDify({ mode: 'analysis', situation: result.situationLabel, calc });
         setNarrative(r.answer);
-        setConversationId(r.conversationId);
-      })
-      .catch((e: Error) => setAiError(e.message))
-      .finally(() => setAiBusy(false));
+        convId = r.conversationId;
+        setConversationId(convId);
+      } catch (e) {
+        setAiError((e as Error).message);
+      }
+      if (pending) {
+        setMessages([{ role: 'user', text: pending }]);
+        try {
+          const q = await askDify({ mode: 'question', question: pending, calc, conversationId: convId });
+          setConversationId(q.conversationId ?? convId);
+          setMessages((m) => [...m, { role: 'ai', text: q.answer }]);
+        } catch (e) {
+          setMessages((m) => [...m, { role: 'ai', text: (e as Error).message }]);
+        }
+      }
+      setAiBusy(false);
+    })();
     // Chỉ gọi khi mới vào màn hình (dữ liệu tính không đổi trong lúc xem)
   }, []);
 

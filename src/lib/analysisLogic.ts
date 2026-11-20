@@ -1,3 +1,4 @@
+import { COURSE_TOPICS } from '../data/courseTopics';
 // Logic form 3.3.1 (kết quả): tóm tắt, kết luận, chi tiết khối, cảnh báo, hệ quả,
 // gợi ý môn lần sau, việc cần làm, nguồn. Thuần, không phụ thuộc giao diện.
 // Số tín khối dùng lại buildElectiveView để khớp với form 3.3.
@@ -24,7 +25,7 @@ export const DISCLAIMER =
   'Kết quả chỉ mang tính tham khảo. Hãy đối chiếu với cổng đăng ký chính thức và Phòng Đào tạo.';
 
 export const TUITION_NOTE =
-  'Học phí ngành Ngôn ngữ Anh khóa QH.2024–QH.2025: 3.800.000 đồng/tháng (Quyết định học phí 2026–2027, mục 3.2.1). Văn bản không có đơn giá theo tín chỉ cho hệ này nên hệ thống chưa tính được số tiền khi vượt tín.';
+  'Học phí ngành Ngôn ngữ Anh khóa QH.2024–QH.2025: 3.800.000 đồng/tháng (Quyết định học phí 2026–2027, mục 3.2.1). ';
 
 export type Severity = 'nghiem_trong' | 'luu_y';
 
@@ -146,7 +147,7 @@ export function buildAnalysis(args: {
       warnings.push({
         severity: 'nghiem_trong',
         text: `${b.title} vượt ${-b.remaining} TC (đã có ${b.done}, đang chọn ${b.picked}, tối đa ${b.required} TC). Hãy bỏ bớt môn.`,
-        source: `CTĐT NNA QH25 – khối ${b.id}; Quy trình RULEPATH, BR-01`,
+        source: `CTĐT NNA QH25 – khối ${b.id}`,
       });
     }
   }
@@ -178,7 +179,7 @@ export function buildAnalysis(args: {
       warnings.push({
         severity: 'luu_y',
         text: `${b.title} còn thiếu ${b.remaining} TC. Bạn có thể học thêm ở các năm sau.`,
-        source: `CTĐT NNA QH25 – khối ${b.id}; Quy trình RULEPATH, BR-01`,
+        source: `CTĐT NNA QH25 – khối ${b.id}`,
       });
     }
   }
@@ -186,7 +187,7 @@ export function buildAnalysis(args: {
     warnings.push({
       severity: 'luu_y',
       text: 'Học phần B2 là môn tự chọn tự do: không tính vào các khối tự chọn, không tính GPA, không tính học phí.',
-      source: 'Quy trình RULEPATH, BR-03',
+      source: 'Phòng Đào tạo và Người học – quy định học phần B2',
     });
   }
 
@@ -223,17 +224,7 @@ export function buildAnalysis(args: {
   const consequences: string[] = [];
   if (overBlocks.length > 0) {
     consequences.push(
-      'Đăng ký vượt học phần tự chọn: dưới 2 tuần sẽ được rút; qua 2 tuần phải đi học bình thường; không đi học sẽ bị điểm F và không được hoàn học phí. Sau khi kết thúc môn phải xin xóa tín (mất phí lần 2).',
-    );
-  }
-  if (semester.status === 'vuot') {
-    consequences.push(
-      `Vượt ${SEMESTER_MAX} TC trong một học kỳ: tài liệu hiện có chưa nêu hệ quả cụ thể. Hãy hỏi Phòng Đào tạo.`,
-    );
-  }
-  if (chosen.length > 0) {
-    consequences.push(
-      'GPA của các môn tự chọn (ngoài B2): tài liệu hiện có chưa có quy định, cần xác nhận với Phòng Đào tạo.',
+      'Phần vượt tín không tính vào GPA. Không đi học sẽ bị điểm F và không được hoàn học phí. Dưới 2 tuần sẽ được rút; qua 2 tuần phải đi học bình thường. Sau khi kết thúc môn phải xin xóa tín (mất phí lần 2).',
     );
   }
   if (b2.length > 0) {
@@ -294,8 +285,31 @@ export function buildAnalysis(args: {
         : `Liên quan đến ${linkedText}. Còn cần học trước: ${missing.join(', ')}.`;
     suggestions.push({ code: c.code, name: c.name, credits: c.credits, reason });
   }
+  // Gợi ý theo nhóm nội dung: môn cùng nhóm với môn đã đăng ký, đã học hoặc đang chọn
+  const topicPool = new Map<string, string[]>();
+  for (const code of takenOrPicked) {
+    const t = COURSE_TOPICS[code];
+    if (!t) continue;
+    topicPool.set(t, [...(topicPool.get(t) ?? []), code]);
+  }
+  const byTopic: { s: Suggestion; n: number }[] = [];
+  for (const c of catalog) {
+    const t = COURSE_TOPICS[c.code];
+    if (!t || !topicPool.has(t)) continue;
+    if (seen.has(c.code) || takenOrPicked.has(c.code)) continue;
+    if (!isCounted(c) || !isVisible(c, rules) || !isOpen(c.code)) continue;
+    seen.add(c.code);
+    const related = topicPool.get(t)!;
+    const needs = prereqsOf(c.code, c.section);
+    const missing = needs.filter((p) => !completedCodes.has(p));
+    const reason =
+      `Cùng nhóm nội dung "${t}" với ${related.join(', ')}.` +
+      (missing.length > 0 ? ` Còn cần học trước: ${missing.join(', ')}.` : '');
+    byTopic.push({ s: { code: c.code, name: c.name, credits: c.credits, reason }, n: related.length });
+  }
+  byTopic.sort((a, b) => b.n - a.n || a.s.code.localeCompare(b.s.code));
   suggestions.sort((a, b) => a.code.localeCompare(b.code));
-  const topSuggestions = suggestions.slice(0, 8);
+  const topSuggestions = [...byTopic.map((x) => x.s), ...suggestions].slice(0, 8);
 
   // ---- Việc cần làm ----
   const nextSteps: string[] = [];
@@ -323,12 +337,11 @@ export function buildAnalysis(args: {
   // ---- Nguồn ----
   const sources = [
     'CTĐT ngành Ngôn ngữ Anh QH25 (danh mục môn theo khối)',
-    'Quy trình triển khai RULEPATH, BR-01 (số tín tối đa theo khối)',
     SEMESTER_SOURCE,
     'Quyết định học phí 2026–2027 (Ngôn ngữ Anh, QH.2024–QH.2025)',
   ];
-  if (overBlocks.length > 0) sources.push('Quy trình triển khai RULEPATH, BR-02 (hệ quả đăng ký vượt tín)');
-  if (b2.length > 0) sources.push('Quy trình triển khai RULEPATH, BR-03 (học phần B2)');
+  if (overBlocks.length > 0) sources.push('Phòng Đào tạo và Người học – quy định đăng ký vượt học phần tự chọn');
+  if (b2.length > 0) sources.push('Phòng Đào tạo và Người học – quy định học phần B2');
   if (prereqs.length > 0 || topSuggestions.length > 0) {
     sources.push('CTĐT ngành Ngôn ngữ Anh QH25, cột "HP học trước"');
   }

@@ -14,7 +14,9 @@ const MAX_QUESTION = 1000;
 const MAX_CALC_CHARS = 20000;
 
 // Lời dặn cho Dify ở dạng biến đầu vào. Prompt đầy đủ đặt trong Dify (mục 9.2 Quy trình).
-const ANALYSIS_QUERY = 'Hãy diễn đạt kết quả đăng ký môn tự chọn dưới đây theo mẫu đã cấu hình. Không tự tính lại số tín.';
+// Câu truy vấn này dùng cho bước tra cứu quy chế trong Dify (knowledge retrieval), nên nêu đủ từ khóa chủ đề
+const ANALYSIS_QUERY =
+  'quy định đăng ký học phần tự chọn: số tín chỉ tối đa tối thiểu mỗi khối, tổng 14–55 tín chỉ mỗi học kỳ, học phần học trước, GPA, học phí, đăng ký vượt tín, học phần B2';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -74,18 +76,34 @@ Deno.serve(async (req) => {
   };
   if (body.conversationId) payload.conversation_id = body.conversationId;
 
-  let difyRes: Response;
-  try {
-    difyRes = await fetch(`${difyBase}/chat-messages`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${difyKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-  } catch {
-    return json({ error: 'dify_unreachable' }, 502);
+  // Gọi Dify, thử lại tối đa 2 lần khi lỗi tạm thời (429, 5xx, mất kết nối, model quá tải).
+  const RETRY_DELAYS_MS = [2000, 5000];
+  let difyRes: Response | null = null;
+  let lastStatus = 0;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt - 1]));
+    try {
+      const res = await fetch(`${difyBase}/chat-messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${difyKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        difyRes = res;
+        break;
+      }
+      lastStatus = res.status;
+      // Ghi lại nội dung lỗi của Dify để xem trong Supabase Logs
+      console.error(`ask-dify: Dify lỗi lần ${attempt + 1}, status ${res.status}:`, await res.text());
+      const retryable = res.status === 429 || res.status >= 500;
+      if (!retryable) break;
+    } catch (e) {
+      lastStatus = 0;
+      console.error(`ask-dify: không kết nối được Dify lần ${attempt + 1}:`, e);
+    }
   }
-  if (!difyRes.ok) {
-    return json({ error: 'dify_error', status: difyRes.status }, 502);
+  if (!difyRes) {
+    return json({ error: lastStatus ? 'dify_error' : 'dify_unreachable', status: lastStatus }, 502);
   }
 
   const out = (await difyRes.json()) as { answer?: string; conversation_id?: string };

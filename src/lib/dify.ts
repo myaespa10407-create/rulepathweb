@@ -15,10 +15,27 @@ export interface AskReply {
   conversationId: string | null;
 }
 
+// Quá thời gian này thì thôi chờ, để sinh viên vẫn hỏi được (bảng số liệu không đổi)
+const TIMEOUT_MS = 60000;
+
 export async function askDify(payload: AskPayload): Promise<AskReply> {
-  const { data, error } = await supabase.functions.invoke<AskReply>('ask-dify', {
-    body: payload,
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error('AI phản hồi quá lâu. Bảng kết quả bên dưới vẫn đúng.')),
+      TIMEOUT_MS,
+    );
   });
+  let result;
+  try {
+    result = await Promise.race([
+      supabase.functions.invoke<AskReply>('ask-dify', { body: payload }),
+      timeout,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+  const { data, error } = result;
   if (error) throw new Error('Chưa kết nối được AI. Bảng kết quả bên dưới vẫn đúng.');
   if (!data || typeof data.answer !== 'string') {
     throw new Error('AI trả về dữ liệu không hợp lệ.');

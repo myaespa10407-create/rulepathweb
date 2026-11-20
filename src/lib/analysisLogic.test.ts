@@ -46,7 +46,7 @@ describe('form 3.1.1: vượt số tín', () => {
     expect(b.status).toBe('vuot');
     const w = r.warnings.find((x) => x.severity === 'nghiem_trong');
     expect(w?.text).toContain('vượt 3 TC');
-    expect(w?.source).toContain('BR-01');
+    expect(w?.source).toContain('CTĐT NNA QH25');
   });
 
   it('kết luận nêu khối vượt và hướng dẫn bỏ bớt', () => {
@@ -57,7 +57,8 @@ describe('form 3.1.1: vượt số tín', () => {
 
   it('nêu hệ quả BR-02 và có nguồn tương ứng', () => {
     expect(r.consequences.some((t) => t.includes('điểm F'))).toBe(true);
-    expect(r.sources.some((s) => s.includes('BR-02'))).toBe(true);
+    expect(r.sources.some((s) => s.includes('vượt học phần tự chọn'))).toBe(true);
+    expect(r.sources.some((s) => s.includes('RULEPATH'))).toBe(false);
   });
 });
 
@@ -115,7 +116,7 @@ describe('form 3.1.1: học phần B2', () => {
     expect(r.b2.map((c) => c.code)).toEqual([b2.code]);
     expect(r.chosen).toEqual([]);
     expect(r.blocks.every((b) => b.picked === 0)).toBe(true);
-    expect(r.warnings.some((w) => w.text.includes('GPA') && w.source.includes('BR-03'))).toBe(true);
+    expect(r.warnings.some((w) => w.text.includes('GPA') && w.source.includes('học phần B2'))).toBe(true);
   });
 });
 
@@ -195,10 +196,32 @@ describe('form 3.3.1: gợi ý môn lần sau', () => {
 });
 
 describe('form 3.3.1: hệ quả GPA và học phí', () => {
-  it('luôn có dòng học phí và nêu chưa có quy định GPA cho môn tự chọn', () => {
+  it('luôn có dòng học phí, không nêu thông tin tài liệu không có', () => {
     const r = run(['FLF1010']);
     expect(r.consequences.some((t) => t.includes('3.800.000'))).toBe(true);
-    expect(r.consequences.some((t) => t.includes('GPA') && t.includes('cần xác nhận'))).toBe(true);
+    expect(r.consequences.some((t) => t.includes('cần xác nhận'))).toBe(false);
+    expect(r.consequences.some((t) => t.includes('chưa tính'))).toBe(false);
+  });
+});
+
+describe('form 3.3.1: gợi ý theo nhóm nội dung', () => {
+  it('môn cùng nhóm nội dung với môn đang chọn được gợi ý, kèm lý do nội dung', () => {
+    const r = run(['FLF1005']);
+    const s = r.suggestions.find((x) => x.code === 'FLF1006');
+    expect(s).toBeDefined();
+    expect(s?.reason).toContain('Cùng nhóm nội dung "Quốc tế học"');
+    expect(s?.reason).toContain('FLF1005');
+    expect(r.suggestions.map((x) => x.code)).not.toContain('FLF1005');
+  });
+
+  it('không chọn môn nào thì không có gợi ý theo nhóm nội dung', () => {
+    const r = run([]);
+    expect(r.suggestions.some((x) => x.reason.startsWith('Cùng nhóm'))).toBe(false);
+  });
+
+  it('không gợi ý theo tín của khối', () => {
+    const r = run(['FLF1005']);
+    expect(r.suggestions.every((x) => !x.reason.includes('khối còn thiếu'))).toBe(true);
   });
 });
 
